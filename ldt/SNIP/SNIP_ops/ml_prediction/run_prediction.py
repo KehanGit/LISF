@@ -234,9 +234,15 @@ class AMSR2SnowDepthPredictor:
             xr.DataArray: Snow depth predictions
         """
         # Open PMW dataset
-        with xr.open_dataset(pmw_file, decode_timedelta=False) as ds_pmw:
-            logger.info('%s file opened', pmw_file)
+        # Check if the file is Zarr or NetCDF and open accordingly
+        # TODO v7.9 modify the AMSR2 resampling code to use Zarr
+        if str(pmw_file).endswith('.zarr'):
+            ds_pmw = xr.open_zarr(pmw_file, decode_timedelta=False)
+        else:
+            ds_pmw = xr.open_dataset(pmw_file, decode_timedelta=False)
+        logger.info('%s file opened', pmw_file)
 
+        try:
             # Extract data for model input
             df = self._extract_features(ds_pmw, target_datetime)
 
@@ -249,10 +255,10 @@ class AMSR2SnowDepthPredictor:
             lat = ds_pmw.squeeze().lat.values
             lon = ds_pmw.squeeze().lon.values
             output_shape = (len(lat), len(lon))
-
-            # File will be automatically closed when exiting the 'with'
-            # block
             return self._format_output(y_pred, output_shape, lat, lon)
+
+        finally:
+            ds_pmw.close()
 
     def add_days_since_wy(self, df):
         """Calculate BT difference"""

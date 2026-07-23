@@ -24,6 +24,7 @@ REVISION HISTORY:
 
 # Standard modules
 import argparse
+import configparser
 import logging
 import os
 import sys
@@ -33,6 +34,7 @@ from config.load_config import Config
 from data_processing.amsr2_reader import AMSR2DataProcessor
 from ml_prediction.run_prediction import AMSR2SnowDepthPredictor
 from ml_prediction.run_prediction_WSF import WSFSnowWorkflow
+from data_processing.amsr3_reader import AMSR3DataProcessor
 
 # Set up logging
 logging.basicConfig(
@@ -46,27 +48,41 @@ logger = logging.getLogger('main')
 # disable the warnings.
 # pylint: disable=W0718
 # pylint: disable=too-few-public-methods
-class AMSR2SnowWorkflow:
+class AMSRSnowWorkflow:
     """Class for automating workflow for AMSR2 snow depth retrievals"""
 
     def __init__(self, config=None):
         self.config = config
-        self.data_processor = AMSR2DataProcessor(config=config)
-        self.sd_predictor = AMSR2SnowDepthPredictor(config=config)
+
 
     def run_workflow(self):
         """Main workflow execution"""
         try:
             # Step 1: Read and process AMSR2 data
             target_datetime = self.config.target_datetime
-            logging.info("Processing AMSR2 data for %s",
+            logging.info("Processing AMSR data for %s",
                          target_datetime)
 
             datestr = target_datetime.strftime("%Y%m%d%H%M")
             # check if the file is already exist
-            pmw_file = (f'{self.config.project_path}/'
-                        f'{self.config.amsr2_merge_path}'
-                        f'/AMSR2_L1R_combined_{datestr}.nc')
+
+            if self.config.input_SD == "AMSR2":
+                pmw_file = (f'{self.config.project_path}/'
+                            f'{self.config.amsr2_merge_path}'
+                            f'/AMSR2_L1R_combined_{datestr}.nc')
+                self.data_processor = AMSR2DataProcessor(config=self.config)
+                self.sd_predictor = AMSR2SnowDepthPredictor(config=self.config)
+
+            elif self.config.input_SD == "AMSR3":
+                pmw_file = (f'{self.config.project_path}/'
+                            f'{self.config.amsr3_merge_path}'
+                            f'/AMSR3_L1R_combined_{datestr}.zarr')
+
+                self.data_processor = AMSR3DataProcessor(config=self.config)
+                # TODO V7.9 design AMSR3 specific ML model;
+                #  For v7.8X, using AMSR2 ML model
+                self.sd_predictor = AMSR2SnowDepthPredictor(config=self.config)
+
             if not os.path.exists(pmw_file):
                 # if passive microwave input data is not merged,
                 # run pre-processing
@@ -97,17 +113,17 @@ def process_single_config(config):
         logging.info("Processing config for datetime %s",
                      config.target_datetime)
 
-        if config.input_SD == "AMSR2":
-            # Create workflow instance for AMSR2
-            amsr2workflow = AMSR2SnowWorkflow(config)
+        if config.input_SD in ["AMSR2", "AMSR3"]:
+            # Create workflow instance for AMSR2/AMSR3
+            amsrworkflow = AMSRSnowWorkflow(config)
             # Capture the result of the workflow
-            success = amsr2workflow.run_workflow()
+            success = amsrworkflow.run_workflow()
 
             if success:
-                logging.info("Successfully processed AMSR2 for %s",
+                logging.info("Successfully processed AMSR2/AMSR3 for %s",
                              config.target_datetime)
             else:
-                logging.error("Failed to process AMSR2 for %s",
+                logging.error("Failed to process AMSR2/AMSR3 for %s",
                               config.target_datetime)
                 return False, config
 
@@ -145,7 +161,8 @@ def main():
                     '6-hour intervals (00, 06, 12, 18 UTC)')
     parser.add_argument('config_file',
                         help='Path to JSON configuration file')
-    parser.add_argument("--input", choices=["AMSR2", "WSF"],
+    parser.add_argument("--input",
+                        choices=["AMSR2", "AMSR3", "WSF"],
                         help="Override the input_SD from the config file")
     args = parser.parse_args()
     try:
