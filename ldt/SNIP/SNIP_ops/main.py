@@ -75,8 +75,8 @@ class AMSRSnowWorkflow:
 
             elif self.config.input_SD == "AMSR3":
                 pmw_file = (f'{self.config.project_path}/'
-                            f'{self.config.amsr3_merge_path}'
-                            f'/AMSR3_L1R_combined_{datestr}.zarr')
+                            f'{self.config.amsr3_resample_path}'
+                            f'/AMSR3_L1R_combined_{datestr}.nc')
 
                 self.data_processor = AMSR3DataProcessor(config=self.config)
                 # TODO V7.9 design AMSR3 specific ML model;
@@ -183,4 +183,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # import xarray as xr
+    # ds = xr.open_dataset('/Users/Kyang17/projects/LISF/ldt/SNIP/SNIP_ops/data/amsr3_l1r/2026/06/GGWAM3_202606010601D030_S1RTBRGAZ01A26158.nc')
     main()
