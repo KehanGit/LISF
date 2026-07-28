@@ -1,6 +1,6 @@
 {
   "_COMMENT_GENERAL": "--- General Project Execution Setup ---",
-  "target_datetime": "201902131800",
+  "target_datetime": "202606011200",
   "_project_path": "/discover/nobackup/kyang17/projects/LISF/ldt/SNIP/SNIP_ops/",
   "project_path": "/Users/Kyang17/projects/LISF/ldt/SNIP/SNIP_ops",
   "model_path": "./data/models/model",
@@ -29,7 +29,7 @@
   "AMSR3_source": "NOAA",
   "_AMSR3_source_comment": "AMSR3_source: NOAA",
   "amsr3_path": "./data/amsr3_l1r",
-  "amsr3_merge_path": "./data/amsr3_merge",
+  "amsr3_resample_path": "./data/amsr3_merge",
 
   "_COMMENT_ANCILLARY": "--- Templates and Ancillary Data ---",
   "template_path": "./data/template/USAFSI_2024123112.nc",
