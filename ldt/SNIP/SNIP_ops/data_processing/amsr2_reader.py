@@ -61,7 +61,6 @@ class AMSR2DataProcessor:
 
                 # 1.1 Check available data
                 available_files = self.check_available_data(target_datetime)
-
                 # 1.2 Process each file
                 processed_data = []
                 for file_path in available_files:
@@ -186,8 +185,6 @@ class AMSR2DataProcessor:
             logger.info(f"Search JAXA data in: {amsr2_path}")
         else:
             logger.error("Wrong Source provided (either NOAA or JAXA)")
-           
-
 
         all_files = []
 
@@ -404,20 +401,20 @@ class AMSR2DataProcessor:
                 # Read 3D array and extract layer 4 (36GHz channel)
                 land_ocean_3d = file["Land_Ocean Flag 6 to 36"][:]
                 if land_ocean_3d.ndim == 3:
-                    land_water_frac = \
+                    land_percent = \
                         land_ocean_3d[3, :, :].astype(np.int32)  # Layer 4 (0-indexed)
                 else:
-                    land_water_frac = land_ocean_3d.astype(np.int32)
-                results['land_water_frac'] = land_water_frac
+                    land_percent = land_ocean_3d.astype(np.int32)
+                results['land_percent'] = land_percent
                 logger.info("Successfully read land/water fraction")
             else:
                 logger.warning("Land_Ocean Flag dataset not found")
-                results['land_water_frac'] = \
+                results['land_percent'] = \
                     np.zeros((results['n'], results['m']),
                              dtype=np.int32)
         except Exception as e:
             logger.warning("Failed to read land/water fraction: %s", e)
-            results['land_water_frac'] = \
+            results['land_percent'] = \
                 np.zeros((results['n'], results['m']), \
                          dtype=np.int32)
         return results
@@ -478,7 +475,7 @@ class AMSR2DataProcessor:
         # STEP 7: Generate flags
         rain, cold_deserts, frozen_ground, glacier, \
             snow, precip = self.apply_flags(
-                tb_data, results['land_water_frac'], results['n'],
+                tb_data, results['land_percent'], results['n'],
                 results['m'])
         # Bit value for flag
         # 1 - rain - NOAA
@@ -533,7 +530,7 @@ class AMSR2DataProcessor:
         lon_interp = lon_interp_func(x_out, y_out).astype(np.float32)
         return lat_interp, lon_interp
 
-    def apply_flags(self, tb_data, land_water_frac, n, m):
+    def apply_flags(self, tb_data, land_percent, n, m):
         """
         Generate snow and precipitation flags based on TB values.
 
@@ -541,7 +538,7 @@ class AMSR2DataProcessor:
         -----------
         tb_data : dict
             Dictionary containing TB arrays
-        land_water_frac : array_like
+        land_percent : array_like
             Land/water fraction array
         n, m : int
             Array dimensions
@@ -571,8 +568,8 @@ class AMSR2DataProcessor:
 
         for i in range(n):
             for j in range(m):
-                # Only process data over land (land_water_frac >= 50)
-                if land_water_frac[i, j] >= 50:
+                # Only process data over land (land_percent >= 50)
+                if land_percent[i, j] >= 50:
                     # Check if all required TB values are valid (> 0)
                     if (tb_18v[i, j] > 0 and tb_18h[i, j] > 0 and
                             tb_23v[i, j] > 0 and tb_89v[i, j] > 0 and
@@ -789,7 +786,7 @@ class AMSR2DataProcessor:
                        'tb_18v', 'tb_18h', 'tb_23v', 'tb_23h', 'tb_36v', 'tb_36h',
                        'tb_89v', 'tb_89h']
         other_vars = ['rain', 'cold_deserts', 'frozen_ground', 'glacier', 'snow', 'precip',
-                      'land_water_frac', 'pixel_qual_flag', 'rfi_h', 'rfi_v']
+                      'land_percent', 'pixel_qual_flag', 'rfi_h', 'rfi_v']
         # other_vars = ['pixel_qual_flag']
         all_vars = tb_channels + other_vars
         # Initialize combined arrays
@@ -924,7 +921,7 @@ class AMSR2DataProcessor:
                     )
             # Add auxiliary variables
             aux_vars = {
-                'land_water_frac': {
+                'land_percent': {
                     'long_name': 'Land Water Fraction',
                     'units': 'percent',
                     'valid_range': [0, 100],
@@ -939,7 +936,7 @@ class AMSR2DataProcessor:
             for var_name, attrs in aux_vars.items():
                 if var_name in combined_data:
                     fill_val = 0 if 'flag' in var_name or \
-                        var_name == 'land_water_frac' else -9999
+                        var_name == 'land_percent' else -9999
                     data_vars[var_name] = (
                         ['time', 'lat', 'lon'],
                         combined_data[var_name][np.newaxis, :, :]. \
