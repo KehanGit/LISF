@@ -235,11 +235,9 @@ class AMSR2SnowDepthPredictor:
         """
         # Open PMW dataset
         # Check if the file is Zarr or NetCDF and open accordingly
-        # TODO v7.9 modify the AMSR2 resampling code to use Zarr
-        if str(pmw_file).endswith('.zarr'):
-            ds_pmw = xr.open_zarr(pmw_file, decode_timedelta=False)
-        else:
-            ds_pmw = xr.open_dataset(pmw_file, decode_timedelta=False)
+        # TODO v7.9 modify the AMSR2 resampling code
+
+        ds_pmw = xr.open_dataset(pmw_file, decode_timedelta=False)
         logger.info('%s file opened', pmw_file)
 
         try:
@@ -520,7 +518,7 @@ class AMSR2SnowDepthPredictor:
                 txt = "Apply land water fraction flag: " + \
                       f"{self.config.land_frac_th}%"
                 logger.info(txt)
-                flag_layer = 'land_water_frac'
+                flag_layer = 'land_percent'
                 # Ensure proper alignment and dimensions
                 land_frac = ds_pmw[flag_layer].squeeze()
 
@@ -834,55 +832,55 @@ class AMSR2SnowDepthPredictor:
                 logger.info("Pipeline completed in %.2f seconds",
                             time.time() - start_time)
 
-            # ── Step 2: Reproject to USAF grid ────────────────────────
-            base_name = os.path.splitext(os.path.basename(output_file))[0]
-            af_path = os.path.join(dir_out, f"{base_name}_AFgrid.nc")
-
-            if os.path.exists(af_path):
-                logger.info(
-                    "AF grid output already exists, skipping: %s",
-                    af_path)
-            else:
-                logger.info("Reprojecting to USAF grid ...")
-                reproject_success = self.reproject_to_usaf()
-                if reproject_success:
-                    logger.info(
-                        "USAF reprojection completed successfully")
-                else:
-                    logger.warning("USAF reprojection failed, but "
-                                   "primary output was saved successfully")
+            # # ── Step 2: Reproject to USAF grid ────────────────────────
+            # base_name = os.path.splitext(os.path.basename(output_file))[0]
+            # af_path = os.path.join(dir_out, f"{base_name}_AFgrid.nc")
+            #
+            # if os.path.exists(af_path):
+            #     logger.info(
+            #         "AF grid output already exists, skipping: %s",
+            #         af_path)
+            # else:
+            #     logger.info("Reprojecting to USAF grid ...")
+            #     reproject_success = self.reproject_to_usaf()
+            #     if reproject_success:
+            #         logger.info(
+            #             "USAF reprojection completed successfully")
+            #     else:
+            #         logger.warning("USAF reprojection failed, but "
+            #                        "primary output was saved successfully")
 
             # ── Step 3: Traditional methods ────────────────────────────
-            if self.config.flag_output_kelly or self.config.flag_output_foster:
-                from .run_traditional_approach import (
-                    SnowDepthPredictorTraditional)
-                trad = SnowDepthPredictorTraditional(config=self.config)
-                trad.pmw_file = pmw_file
+            # if self.config.flag_output_kelly or self.config.flag_output_foster:
+            #     from .run_traditional_approach import (
+            #         SnowDepthPredictorTraditional)
+            #     trad = SnowDepthPredictorTraditional(config=self.config)
+            #     trad.pmw_file = pmw_file
+            #
+            #     if self.config.flag_output_kelly:
+            #         kelly_file = os.path.join(
+            #             dir_out,
+            #             f'amsr2_snip_0p1deg_{target_datetime}_kelly.nc')
+            #         if os.path.exists(kelly_file):
+            #             logger.info(
+            #                 "Kelly output already exists, skipping: %s",
+            #                 kelly_file)
+            #         else:
+            #             logger.info("Running Kelly algorithm ...")
+            #             trad.predict(method='kelly', save=True)
 
-                if self.config.flag_output_kelly:
-                    kelly_file = os.path.join(
-                        dir_out,
-                        f'amsr2_snip_0p1deg_{target_datetime}_kelly.nc')
-                    if os.path.exists(kelly_file):
-                        logger.info(
-                            "Kelly output already exists, skipping: %s",
-                            kelly_file)
-                    else:
-                        logger.info("Running Kelly algorithm ...")
-                        trad.predict(method='kelly', save=True)
 
-
-                if self.config.flag_output_foster:
-                    foster_file = os.path.join(
-                        dir_out,
-                        f'amsr2_snip_0p1deg_{target_datetime}_foster.nc')
-                    if os.path.exists(foster_file):
-                        logger.info(
-                            "Foster output already exists, skipping: %s",
-                            foster_file)
-                    else:
-                        logger.info("Running Foster algorithm ...")
-                        trad.predict(method='foster', save=True)
+                # if self.config.flag_output_foster:
+                #     foster_file = os.path.join(
+                #         dir_out,
+                #         f'amsr2_snip_0p1deg_{target_datetime}_foster.nc')
+                #     if os.path.exists(foster_file):
+                #         logger.info(
+                #             "Foster output already exists, skipping: %s",
+                #             foster_file)
+                #     else:
+                #         logger.info("Running Foster algorithm ...")
+                #         trad.predict(method='foster', save=True)
 
 
             return True
