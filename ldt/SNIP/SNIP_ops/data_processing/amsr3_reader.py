@@ -53,10 +53,12 @@ class AMSR3DataProcessor:
         for attempt in range(max_retries + 1):
             try:
                 logger.info("Processing attempt %s / %s for %s",
-                            (attempt + 1), (max_retries + 1), target_datetime)
+                            (attempt + 1), (max_retries + 1),
+                            target_datetime)
 
                 # 1.1 Check available data
-                available_files = self.check_available_data(target_datetime)
+                # TODO use only one files for debuging
+                available_files = self.check_available_data(target_datetime)[0:1]
                 output_filenames = self.generate_output_filename(
                     available_files)
 
@@ -90,7 +92,8 @@ class AMSR3DataProcessor:
                 return saved_files
 
             except Exception as e:
-                logger.error("Attempt %s failed: %s", (attempt + 1), str(e))
+                logger.error("Attempt %s failed: %s",
+                             (attempt + 1), str(e))
                 if attempt < max_retries:
                     time.sleep(2)
                 else:
@@ -126,9 +129,11 @@ class AMSR3DataProcessor:
                 f"GGWAM3_{year_str}{month_str}{day_str}*.nc"
             )
             all_files.extend(glob.glob(search_pattern))
-            logger.info("Found %s files in %s", len(all_files), amsr3_path)
+            logger.info("Found %s files in %s",
+                        len(all_files), amsr3_path)
         else:
-            logger.warning("Directory does not exist: %s", amsr3_path)
+            logger.warning("Directory does not exist: %s",
+                           amsr3_path)
 
         file_list = self._get_file_list(all_files, start_time, target_datetime)
         if not file_list:
@@ -138,7 +143,8 @@ class AMSR3DataProcessor:
             logger.error(error_msg)
             raise FileNotFoundError(error_msg)
 
-        logger.info("Found %s AMSR3 descending files.", len(file_list))
+        logger.info("Found %s AMSR3 descending files.",
+                    len(file_list))
         for file_path in file_list:
             logger.info("   - %s", file_path)
 
@@ -162,13 +168,15 @@ class AMSR3DataProcessor:
 
                 # Only keep Descending passes
                 if orbit == 'D':
-                    file_datetime = datetime.strptime(time_str, '%Y%m%d%H%M')
+                    file_datetime = datetime.strptime(time_str,
+                                                      '%Y%m%d%H%M')
                     if start_time <= file_datetime <= target_datetime:
                         file_list.append(file_path)
 
             except (IndexError, ValueError) as e:
-                logger.warning("Could not parse datetime from filename %s: %s",
-                               filename, e)
+                logger.warning(
+                    "Could not parse datetime from filename %s: %s",
+                    filename, e)
                 continue
 
         file_list.sort()
@@ -180,17 +188,19 @@ class AMSR3DataProcessor:
             raise FileNotFoundError(f"Cannot find file {filename}")
 
         try:
-            ds = xr.open_dataset(filename, engine='h5netcdf', chunks='auto')
+            ds = xr.open_dataset(filename,
+                                 engine='h5netcdf',
+                                 chunks='auto')
 
             tb_channels = {
                 'tb_6v': "Tb_FOV06Ch06V_P89o",
                 'tb_6h': "Tb_FOV06Ch06H_P89o",
                 'tb_7v': "Tb_FOV06Ch07V_P89o",
                 'tb_7h': "Tb_FOV06Ch07H_P89o",
-                'tb_10vu': "Tb_FOV10Ch10uV_P89o", # extra 10.25 GHz channel
-                'tb_10hu': "Tb_FOV10Ch10uH_P89o", # extra 10.26 GHz channel
-                'tb_10v': "Tb_FOV10Ch10V_P89o", # same 10.65 GHz as AMSR2
-                'tb_10h': "Tb_FOV10Ch10H_P89o", # same 10.65 GHz as AMSR2
+                'tb_10vu': "Tb_FOV10Ch10uV_P89o",
+                'tb_10hu': "Tb_FOV10Ch10uH_P89o",
+                'tb_10v': "Tb_FOV10Ch10V_P89o",
+                'tb_10h': "Tb_FOV10Ch10H_P89o",
                 'tb_18v': "Tb_FOV10Ch18V_P89o",
                 'tb_18h': "Tb_FOV10Ch18H_P89o",
                 'tb_23v': "Tb_FOV23Ch23V_P89o",
@@ -199,7 +209,7 @@ class AMSR3DataProcessor:
                 'tb_36h': "Tb_FOV36Ch36H_P89o",
                 'tb_89v': "Tb_FOV36Ch89V_P89o",
                 'tb_89h': "Tb_FOV36Ch89H_P89o",
-                'tb_165v': "Tb_FOV36Ch165V_P89o", # no h pol for 165 GHz
+                'tb_165v': "Tb_FOV36Ch165V_P89o",
                 'tb_183v': "Tb_FOV36Ch183r7V_P89o",
                 'tb_183h': "Tb_FOV36Ch183r7H_P89o"
             }
@@ -214,9 +224,24 @@ class AMSR3DataProcessor:
             for key, amsr3_name in tb_channels.items():
                 if amsr3_name in ds:
                     results[key] = ds[amsr3_name].data.astype(np.float32)
-                else:
-                    results[key] = da.zeros((results['n89'], results['m89']),
-                                            dtype=np.float32)
+
+                    # Look for the matching _Quality array
+                    qual_name = amsr3_name + '_Quality'
+                    if qual_name in ds:
+                        results[key + '_quality'] = ds[qual_name].data.astype(
+                            np.float32)
+
+            # Grab the highest resolution land percentage
+            if 'LandAreaPercent_FOV36_P89o' in ds:
+                results['land_percent'] = ds[
+                    'LandAreaPercent_FOV36_P89o'].data.astype(np.float32)
+
+            if 'ScanDataQuality' in ds:
+                scan_qual_1d = ds['ScanDataQuality'].data.astype(np.float32)
+                scan_qual_2d = scan_qual_1d[:, np.newaxis]
+                results['scan_quality'] = np.broadcast_to(scan_qual_2d, (
+                results['n89'], results['m89']))
+
 
             if 'ScanTimeTAI93' in ds:
                 results['scan_time'] = ds['ScanTimeTAI93'].data
@@ -224,140 +249,175 @@ class AMSR3DataProcessor:
             return results
 
         except Exception as e:
-            logger.error("Error reading AMSR3 file with xarray/dask: %s", e)
+            logger.error("Error reading AMSR3 file with xarray/dask: %s",
+                         e)
             raise
 
-    def custom_idw_resample(self, src_lats, src_lons, src_data, tgt_lats,
-                            tgt_lons, radius_m, neighbors=50):
-        """Pure SciPy/NumPy Inverse Distance Weighting (IDW). Safe for Mac."""
+    def get_spatial_mapping(self, src_lats, src_lons, tgt_lats, tgt_lons):
+        """Builds the KDTree and finds neighbors ONCE for the entire file."""
+        logger.info(
+            "Building KDTree and mapping coordinates ...")
 
-        # 1. Filter out NaNs and invalid data
-        valid = ~np.isnan(src_lats) & ~np.isnan(src_lons) & ~np.isnan(src_data)
-        if not np.any(valid):
-            return np.full(tgt_lats.shape, np.nan, dtype=np.float32)
+        # 1. Filter valid coordinates (shared across all channels)
+        valid_coords = ~np.isnan(src_lats) & ~np.isnan(src_lons) & (
+                    src_lats >= -90) & (src_lats <= 90)
 
-        slat = np.deg2rad(src_lats[valid])
-        slon = np.deg2rad(src_lons[valid])
-        sdata = src_data[valid]
+        slat = src_lats[valid_coords]
+        slon = src_lons[valid_coords]
 
-        # 2. Convert Source to 3D Cartesian (meters) for accurate KDTree distance
-        R = 6371000.0  # Radius of Earth in meters
-        sx = R * np.cos(slat) * np.cos(slon)
-        sy = R * np.cos(slat) * np.sin(slon)
-        sz = R * np.sin(slat)
+        # 2. Convert to 3D Cartesian
+        R = 6371228.0
+        sx = R * np.cos(np.deg2rad(slat)) * np.cos(np.deg2rad(slon))
+        sy = R * np.cos(np.deg2rad(slat)) * np.sin(np.deg2rad(slon))
+        sz = R * np.sin(np.deg2rad(slat))
 
-        # 3. Convert Target to 3D Cartesian
-        tlat = np.deg2rad(tgt_lats.ravel())
-        tlon = np.deg2rad(tgt_lons.ravel())
-        tx = R * np.cos(tlat) * np.cos(tlon)
-        ty = R * np.cos(tlat) * np.sin(tlon)
-        tz = R * np.sin(tlat)
+        tx = R * np.cos(np.deg2rad(tgt_lats.ravel())) * np.cos(
+            np.deg2rad(tgt_lons.ravel()))
+        ty = R * np.cos(np.deg2rad(tgt_lats.ravel())) * np.sin(
+            np.deg2rad(tgt_lons.ravel()))
+        tz = R * np.sin(np.deg2rad(tgt_lats.ravel()))
 
-        # 4. Build KDTree and find nearest neighbors within the specific radius
+        # 3. Build and Query KDTree
         tree = cKDTree(np.column_stack([sx, sy, sz]))
+        dists, idxs = tree.query(np.column_stack([tx, ty, tz]), k=50,
+                                 distance_upper_bound=20000.0)
 
-        # Returns distances and index positions of the nearest points
-        dists, idxs = tree.query(
-            np.column_stack([tx, ty, tz]),
-            k=neighbors,
-            distance_upper_bound=radius_m
-        )
+        return dists, idxs, valid_coords
 
-        # 5. Inverse Distance Weighting Math
-        valid_mask = idxs < len(
-            sdata)  # cKDTree sets out-of-bounds neighbors to len(data)
-        sdata_flat = sdata.flatten()
-        # Gather the temperatures (use 0 for invalid to keep array shapes happy, we mask it out next)
-        safe_idxs = np.where(valid_mask, idxs, 0)
-        vals = sdata_flat[safe_idxs]
+    def apply_idw(self, dists, idxs, valid_coords, src_data, tgt_shape,
+                  src_quality=None):
+        """Applies the IDW math instantly using the
+        pre-calculated KDTree mapping."""
+        # Align data with the valid coordinates used to build the tree
+        sdata = src_data[valid_coords]
+        if src_quality is not None:
+            squal = src_quality[valid_coords]
 
-        # Weights = 1 / distance (add 1e-6 to prevent dividing by zero)
-        weights = np.where(valid_mask, 1.0 / (dists + 1e-6), 0.0)
+        # Find which target pixels actually got valid neighbors
+        valid_tree_mask = idxs < len(sdata)
+        safe_idxs = np.where(valid_tree_mask, idxs, 0)
 
+        # Extract values
+        vals = sdata[safe_idxs]
+
+        # Filter: Must be a valid neighbor AND physically valid TB
+        valid_tb_mask = valid_tree_mask & (vals > 50.0) & (vals < 400.0)
+
+        # Quality filtering (0 = Good)
+        if src_quality is not None:
+            q_vals = squal[safe_idxs]
+            valid_tb_mask &= (q_vals == 0)
+
+        # Apply IDW Math
+        weights = np.where(valid_tb_mask, 1.0 / (dists + 1e-6), 0.0)
         sum_weights = np.sum(weights, axis=1)
-        # print(f"Weights shape: {weights.shape}, Vals shape: {vals.shape}")
-        weighted_vals = np.sum(weights * vals, axis=1)
+        weighted_vals = np.sum(weights * np.where(valid_tb_mask, vals, 0),
+                               axis=1)
 
-        # Suppress the harmless divide-by-zero warning
         with np.errstate(divide='ignore', invalid='ignore'):
             out_flat = np.where(sum_weights > 0, weighted_vals / sum_weights,
                                 np.nan)
 
-        return out_flat.reshape(tgt_lats.shape).astype(np.float32)
+        return out_flat.reshape(tgt_shape).astype(np.float32)
 
     def resample_single_file(self, data):
         """
-        Resamples a single AMSR3 swath dataset to the fixed ARFS/AF Grid using SciPy IDW.
+        Resamples using fixed 20km radius - optimized!
         """
-        logger.info(
-            "Resampling single dataset using Custom SciPy IDW to fixed AF Grid...")
+        logger.info("Resampling using IDW Method (20km radius)...")
 
-        # 1. Define the exact AF Grid dimensions
-        width = 2560
-        height = 1920
-
-        # Generate the 1D arrays for the NetCDF coordinates
-        # Matching Pyresample's extent: (-180.0, -90.0, 180.0, 90.0)
+        width, height = 2560, 1920
+        tgt_shape = (height, width)
         lons_1d = np.linspace(-180.0, 180.0, width)
-        lats_1d = np.linspace(90.0, -90.0,
-                              height)  # Starts at 90, goes down to -90
-
-        # Generate the 2D grid needed for the KDTree math
+        lats_1d = np.linspace(90.0, -90.0, height)
         target_lon_2d, target_lat_2d = np.meshgrid(lons_1d, lats_1d)
 
-        resampled_result = {
-            'lat': lats_1d,
-            'lon': lons_1d,
-            # <--- FIXED: Make sure this is lons_1d, not lats_1d!
-        }
+        resampled_result = {'lat': lats_1d, 'lon': lons_1d}
+        tb_channels = [k for k in data.keys() if
+                       k.startswith('tb_') and not k.endswith('_quality')]
 
-        # Define scientifically accurate search radii (in meters)
-        radius_map = {
-            'tb_6': 50000,
-            'tb_7': 50000,
-            'tb_10': 30000,
-            'tb_18': 20000,
-            'tb_23': 20000,
-            'tb_36': 15000,
-            'tb_89': 15000,
-            'tb_165': 15000,
-            'tb_183': 15000
-        }
+        # 1. Compute Coordinates ONCE
+        swath_lats = np.asarray(data['lat89'], dtype=np.float32).flatten()
+        swath_lons = np.asarray(data['lon89'], dtype=np.float32).flatten()
 
-        tb_channels = [k for k in data.keys() if k.startswith('tb_')]
+        # 2. Build the Spatial Mapping ONCE
+        dists, idxs, valid_coords = self.get_spatial_mapping(
+            swath_lats, swath_lons, target_lat_2d, target_lon_2d
+        )
 
-        # Compute raw coordinates from the file
-        swath_lats = data['lat89'].compute()
-        swath_lons = data['lon89'].compute()
+        # Grab Scan Quality ONCE
+        if 'scan_quality' in data:
+            global_scan_quality = np.nan_to_num(
+                np.asarray(data['scan_quality'], dtype=np.float32).flatten(),
+                nan=0.0)
+        else:
+            global_scan_quality = None
 
+        # 3. Apply the mapping to all TB channels
         for var in tb_channels:
-            raw_data = data[var].compute()
+            raw_data = np.asarray(data[var], dtype=np.float32).flatten()
 
-            # Dynamically select the correct search radius for this channel
-            base_channel = var.split('v')[0].split('h')[0]
-            search_radius = radius_map.get(base_channel, 20000)
+            qual_key = var + '_quality'
+            if qual_key in data:
+                raw_quality = np.nan_to_num(
+                    np.asarray(data[qual_key], dtype=np.float32).flatten(),
+                    nan=0.0)
+            else:
+                raw_quality = np.zeros_like(raw_data)
 
-            # Resample using our custom IDW function
-            resampled = self.custom_idw_resample(
-                src_lats=swath_lats,
-                src_lons=swath_lons,
-                src_data=raw_data,
-                tgt_lats=target_lat_2d,
-                tgt_lons=target_lon_2d,
-                radius_m=search_radius,
-                neighbors=8
-                # Grabs up to 8 overlapping pixels within the radius to average
+            # --- COMBINE SENSOR QUALITY ONLY ---
+            if global_scan_quality is not None:
+                combined_quality = np.maximum(raw_quality, global_scan_quality)
+            else:
+                combined_quality = raw_quality
+
+            resampled = self.apply_idw(
+                dists, idxs, valid_coords, raw_data, tgt_shape,
+                src_quality=combined_quality
             )
-
             resampled_result[var] = resampled
+
+        # 4. Resample the Land Percentage (No quality filtering needed for land)
+        if 'land_percent' in data:
+            raw_land = np.asarray(data['land_percent'],
+                                  dtype=np.float32).flatten()
+            resampled_land = self.apply_idw(
+                dists, idxs, valid_coords, raw_land, tgt_shape, src_quality=None
+            )
+            resampled_result['land_percent'] = resampled_land
+
+        # --- Master Mask (Enforce identical edges and crisp coastlines) ---
+        master_mask = np.ones((height, width), dtype=bool)
+
+        # A pixel must be valid in ALL channels to survive
+        for var in tb_channels:
+            master_mask &= ~np.isnan(resampled_result[var])
+
+        # A pixel must be at least 90% land to survive (Fixes the bleeding edges!)
+        if 'land_percent' in resampled_result:
+            master_mask &= (resampled_result['land_percent'] >= 90.0)
+
+        # 5. Apply the strict master mask to ALL channels
+        for var in tb_channels:
+            resampled_result[var] = np.where(master_mask, resampled_result[var],
+                                             np.nan)
+
+        # Optional: Apply mask to the land variable itself if you plan to save it
+        if 'land_percent' in resampled_result:
+            resampled_result['land_percent'] = np.where(master_mask,
+                                                        resampled_result[
+                                                            'land_percent'],
+                                                        np.nan)
 
         return resampled_result
 
     def save_to_nc_single(self, resampled_data, output_filename,
                           target_datetime):
         """
-        Save a single resampled AMSR3 dataset to a NetCDF file.
+        Save a single resampled AMSR3 dataset to a NetCDF file with GIS projection.
         """
+        import rioxarray  # Ensure this is imported for the CRS tagging
+
         try:
             logger.info("Saving resampled file to %s", output_filename)
 
@@ -366,23 +426,44 @@ class AMSR3DataProcessor:
             time_coord = pd.to_datetime([target_datetime])
 
             data_vars = {}
-            tb_keys = [k for k in resampled_data.keys() if k.startswith('tb_')]
 
-            for var_name in tb_keys:
+            # Save TB channels
+            keys_to_save = [k for k in resampled_data.keys() if
+                            k not in ['lat', 'lon']]
+
+            for var_name in keys_to_save:
                 data_vars[var_name] = (
-                    ['time', 'y', 'x'],
+                    ['time', 'lat', 'lon'],
                     resampled_data[var_name][np.newaxis, :, :].astype(
-                        np.float32)
+                        np.float32),
+                    # Add basic attributes for each variable
+                    {'grid_mapping': 'spatial_ref'}
                 )
 
             ds_xr = xr.Dataset(
                 data_vars=data_vars,
                 coords={
                     'time': time_coord,
-                    'y': lat_1d,
-                    'x': lon_1d
+                    'lat': ('lat', lat_1d, {
+                        'standard_name': 'latitude',
+                        'long_name': 'Latitude',
+                        'units': 'degrees_north',
+                        'axis': 'Y'
+                    }),
+                    'lon': ('lon', lon_1d, {
+                        'standard_name': 'longitude',
+                        'long_name': 'Longitude',
+                        'units': 'degrees_east',
+                        'axis': 'X'
+                    })
+                },
+                attrs={
+                    'Conventions': 'CF-1.6',
+                    'title': 'AMSR3 Resampled Brightness Temperatures'
                 }
             )
+            ds_xr.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=True)
+            ds_xr.rio.write_crs("epsg:4326", inplace=True)
 
             # Save to nc file
             os.makedirs(os.path.dirname(output_filename), exist_ok=True)
@@ -405,7 +486,7 @@ class AMSR3DataProcessor:
 
         outfiles = []
         for f in available_files:
-            basename = os.path.basename(f)
-            outfiles.append(full_output_dir / basename)
+            filename = os.path.basename(f)
+            outfiles.append(full_output_dir / filename)
 
         return outfiles
