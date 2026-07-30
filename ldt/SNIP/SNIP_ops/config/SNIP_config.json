@@ -7,7 +7,7 @@
   "output_dir": "./data/output",
 
   "_COMMENT_WORKFLOW": "--- Select Input Satellite: 'AMSR2', 'WSF', or 'AMSR3' ---",
-  "input_SD": "AMSR3",
+  "input_SD": "AMSR2",
 
   "_COMMENT_WSF": "--- WSF-M Specific Configuration with LDT WSF-M data reader configuration ---",
   "raw_sdr_base": "./data/input/wsf_sdr_data",
@@ -19,17 +19,17 @@
   "ldt_config_template": "./ldt.config.global.noahmp401.7.snip",
 
   "_COMMENT_AMSR2": "--- AMSR2 Specific Configuration ---",
-  "AMSR2_source": "JAXA",
+  "AMSR2_source": "NOAA",
   "_AMSR2_source_comment": "AMSR2_source: JAXA or NOAA",
-  "amsr2_path": "./data/amsr2_JAXA",
-  "amsr2_merge_path": "./data/amsr2_merge_JAXA",
+  "amsr2_path": "./data/amsr2_NOAA",
+  "amsr2_merge_path": "./data/amsr2_merge_NOAA",
   "AMSR2_template_path": "./data/template/AMSR2.nc",
 
   "_COMMENT_AMSR3": "--- AMSR3 Specific Configuration ---",
   "AMSR3_source": "NOAA",
   "_AMSR3_source_comment": "AMSR3_source: NOAA",
   "amsr3_path": "./data/amsr3_l1r",
-  "amsr3_resample_path": "./data/amsr3_merge",
+  "amsr3_resample_path": "./data/amsr3_resample",
 
   "_COMMENT_ANCILLARY": "--- Templates and Ancillary Data ---",
   "template_path": "./data/template/USAFSI_2024123112.nc",
