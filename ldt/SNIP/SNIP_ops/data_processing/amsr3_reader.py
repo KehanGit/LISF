@@ -57,8 +57,7 @@ class AMSR3DataProcessor:
                             target_datetime)
 
                 # 1.1 Check available data
-                # TODO use only one files for debuging
-                available_files = self.check_available_data(target_datetime)[0:1]
+                available_files = self.check_available_data(target_datetime)
                 output_filenames = self.generate_output_filename(
                     available_files)
 
@@ -182,6 +181,110 @@ class AMSR3DataProcessor:
         file_list.sort()
         return file_list
 
+    def apply_flags(self, tb_data, land_percent, n, m):
+        """
+        Generate snow and precipitation flags based on TB values.
+
+        Parameters:
+        -----------
+        tb_data : dict
+            Dictionary containing TB arrays
+        land_percent : array_like
+            Land/water fraction array
+        n, m : int
+            Array dimensions
+
+        Returns:
+        --------
+        tuple : (rain, cold_deserts, frozen_ground, glacier) flag arrays
+        """
+
+        rain = np.zeros((n, m), dtype=np.int32)
+        cold_deserts = np.zeros((n, m), dtype=np.int32)
+        frozen_ground = np.zeros((n, m), dtype=np.int32)
+        glacier = np.zeros((n, m), dtype=np.int32)
+        snow = np.zeros((n, m), dtype=np.int32)
+        precip = np.zeros((n, m), dtype=np.int32)
+
+        # Get required TB channels
+        tb_18v = tb_data.get('tb_18v', np.zeros((n, m)))
+        tb_18h = tb_data.get('tb_18h', np.zeros((n, m)))
+        tb_23v = tb_data.get('tb_23v', np.zeros((n, m)))
+        tb_36v = tb_data.get('tb_36v', np.zeros((n, m)))
+        tb_89v = tb_data.get('tb_89v', np.zeros((n, m)))
+
+        logger.info("Generating rain, cold deserts, frozen ground,"
+                       " and glacier flags using NOAA method;"
+                       "Generating snow and precip flags using Rajat method ...")
+
+        for i in range(n):
+            for j in range(m):
+                # Only process data over land (land_percent >= 50)
+                if land_percent[i, j] >= 50:
+                    # Check if all required TB values are valid (> 0)
+                    if (tb_18v[i, j] > 0 and tb_18h[i, j] > 0 and
+                            tb_23v[i, j] > 0 and tb_89v[i, j] > 0 and
+                            tb_36v[i, j] > 0):
+
+                        # Apply NOAA's method in flag rain, cold deserts,
+                        # frozen ground and glacier (Grody's SCA algorithm)
+                        scat = tb_23v[i, j] - tb_89v[i, j]
+                        sc37 = tb_18v[i, j] - tb_36v[i, j]
+                        pd19 = tb_18v[i, j] - tb_18h[i, j]  # tt18
+                        scx = tb_36v[i, j] - tb_89v[i, j]
+                        scat = max(scat, sc37)
+                        tt = (165 + 0.49 * tb_89v[i, j])
+                        if ((tb_23v[i, j] >= 254.0 and scat <= 2.0) or
+                                tb_23v[i, j] >= 258.0 or tb_23v[i, j] >= tt):
+                            rain[i, j] = 1
+                        else:
+                            rain[i, j] = 0
+                        if pd19 >= 18.0 and sc37 <= 10.0 and scx <= 10.0:
+                            cold_deserts[i, j] = 1
+                        else:
+                            cold_deserts[i, j] = 0
+                        if scat <= 6.0 and pd19 >= 8.0:
+                            frozen_ground[i, j] = 1
+                        else:
+                            frozen_ground[i, j] = 0
+                        if tb_23v[i, j] <= 210.0 or \
+                           (tb_23v[i, j] <= 229.0 and pd19 >= 23.0):
+                            glacier[i, j] = 1
+                        else:
+                            glacier[i, j] = 0
+                        # Ehsan's method in classify snow and precipitation
+                        # Calculate scattering index and polarization difference
+                        sil = (451.88 - 0.44 * tb_18v[i, j] - 1.775 * tb_23v[i, j] +
+                               0.00574 * tb_23v[i, j] ** 2 - tb_89v[i, j])
+                        tt18 = tb_18v[i, j] - tb_18h[i, j]
+                        if sil > 10:
+                            if (tb_23v[i, j] <= 264.0 and
+                                    tb_23v[i, j] <= (175.0 + 0.49 * tb_89v[i, j])):
+                                # Snow branch
+                                snow[i, j] = 1
+                                # Additional snow checks
+                                if (tt18 >= 18 and
+                                        (tb_18v[i, j] - tb_36v[i, j]) <= 10 and
+                                        (tb_36v[i, j] - tb_89v[i, j]) <= 10):
+                                    snow[i, j] = 0
+                                if (tt18 >= 8 and
+                                        (tb_18v[i, j] - tb_36v[i, j]) <= 2 and
+                                        (tb_23v[i, j] - tb_89v[i, j]) <= 6):
+                                    snow[i, j] = 1
+                            else:
+                                # Precipitation branch
+                                snow[i, j] = 0
+                                precip[i, j] = 1
+                                # Additional precip checks
+                                if tt18 > 20:
+                                    precip[i, j] = 0
+                                if tb_89v[i, j] > 253 and tt18 > 7:
+                                    precip[i, j] = 0
+
+        logger.info("Rain, cold_deserts, frozen_ground, "
+                       "glacier, snow, and precip flags generated")
+        return rain, cold_deserts, frozen_ground, glacier, snow, precip
+
     def get_amsr3_l1r_dask(self, filename):
         """Read AMSR3 L1R data efficiently using Xarray and Dask."""
         if not os.path.exists(filename):
@@ -192,13 +295,14 @@ class AMSR3DataProcessor:
                                  engine='h5netcdf',
                                  chunks='auto')
 
+            # TODO v7.9 AMSR3 ML model
             tb_channels = {
                 'tb_6v': "Tb_FOV06Ch06V_P89o",
                 'tb_6h': "Tb_FOV06Ch06H_P89o",
                 'tb_7v': "Tb_FOV06Ch07V_P89o",
                 'tb_7h': "Tb_FOV06Ch07H_P89o",
-                'tb_10vu': "Tb_FOV10Ch10uV_P89o",
-                'tb_10hu': "Tb_FOV10Ch10uH_P89o",
+                # 'tb_10vu': "Tb_FOV10Ch10uV_P89o",
+                # 'tb_10hu': "Tb_FOV10Ch10uH_P89o",
                 'tb_10v': "Tb_FOV10Ch10V_P89o",
                 'tb_10h': "Tb_FOV10Ch10H_P89o",
                 'tb_18v': "Tb_FOV10Ch18V_P89o",
@@ -208,10 +312,10 @@ class AMSR3DataProcessor:
                 'tb_36v': "Tb_FOV36Ch36V_P89o",
                 'tb_36h': "Tb_FOV36Ch36H_P89o",
                 'tb_89v': "Tb_FOV36Ch89V_P89o",
-                'tb_89h': "Tb_FOV36Ch89H_P89o",
-                'tb_165v': "Tb_FOV36Ch165V_P89o",
-                'tb_183v': "Tb_FOV36Ch183r7V_P89o",
-                'tb_183h': "Tb_FOV36Ch183r7H_P89o"
+                'tb_89h': "Tb_FOV36Ch89H_P89o"
+                # 'tb_165v': "Tb_FOV36Ch165V_P89o",
+                # 'tb_183v': "Tb_FOV36Ch183r7V_P89o",
+                # 'tb_183h': "Tb_FOV36Ch183r7H_P89o"
             }
 
             results = {}
@@ -323,6 +427,8 @@ class AMSR3DataProcessor:
     def resample_single_file(self, data):
         """
         Resamples using fixed 20km radius - optimized!
+        Matches Fortran exactly: Resamples TBs and Land separately.
+        Ocean pixels are PRESERVED here so the ML model can filter them later.
         """
         logger.info("Resampling using IDW Method (20km radius)...")
 
@@ -336,7 +442,7 @@ class AMSR3DataProcessor:
         tb_channels = [k for k in data.keys() if
                        k.startswith('tb_') and not k.endswith('_quality')]
 
-        # 1. Compute Coordinates ONCE
+        # 1. Compute Coordinates ONCE (Forcing float32 to prevent Xarray list errors)
         swath_lats = np.asarray(data['lat89'], dtype=np.float32).flatten()
         swath_lons = np.asarray(data['lon89'], dtype=np.float32).flatten()
 
@@ -353,10 +459,11 @@ class AMSR3DataProcessor:
         else:
             global_scan_quality = None
 
-        # 3. Apply the mapping to all TB channels
+        # 3. Apply the mapping to all TB channels INSTANTLY
         for var in tb_channels:
             raw_data = np.asarray(data[var], dtype=np.float32).flatten()
 
+            # Fetch the matching channel quality array
             qual_key = var + '_quality'
             if qual_key in data:
                 raw_quality = np.nan_to_num(
@@ -377,7 +484,7 @@ class AMSR3DataProcessor:
             )
             resampled_result[var] = resampled
 
-        # 4. Resample the Land Percentage (No quality filtering needed for land)
+        # 4. Resample the Land Percentage using IDW
         if 'land_percent' in data:
             raw_land = np.asarray(data['land_percent'],
                                   dtype=np.float32).flatten()
@@ -386,23 +493,19 @@ class AMSR3DataProcessor:
             )
             resampled_result['land_percent'] = resampled_land
 
-        # --- Master Mask (Enforce identical edges and crisp coastlines) ---
+        # --- Swath Mask (Ensure Identical Edges) ---
         master_mask = np.ones((height, width), dtype=bool)
 
         # A pixel must be valid in ALL channels to survive
+        # (This cuts off the empty space outside the swath, but ignores whether it is land or ocean)
         for var in tb_channels:
             master_mask &= ~np.isnan(resampled_result[var])
 
-        # A pixel must be at least 90% land to survive (Fixes the bleeding edges!)
-        if 'land_percent' in resampled_result:
-            master_mask &= (resampled_result['land_percent'] >= 90.0)
-
-        # 5. Apply the strict master mask to ALL channels
+        # 5. Apply the identical edge mask to ALL channels and land_percent
         for var in tb_channels:
             resampled_result[var] = np.where(master_mask, resampled_result[var],
                                              np.nan)
 
-        # Optional: Apply mask to the land variable itself if you plan to save it
         if 'land_percent' in resampled_result:
             resampled_result['land_percent'] = np.where(master_mask,
                                                         resampled_result[
