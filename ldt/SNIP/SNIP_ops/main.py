@@ -32,7 +32,8 @@ import sys
 # Local modules
 from config.load_config import Config
 from data_processing.amsr2_reader import AMSR2DataProcessor
-from ml_prediction.run_prediction import AMSR2SnowDepthPredictor
+from ml_prediction.run_prediction import (AMSR2SnowDepthPredictor,
+                                          AMSR3SnowDepthPredictor)
 from ml_prediction.run_prediction_WSF import WSFSnowWorkflow
 from data_processing.amsr3_reader import AMSR3DataProcessor
 
@@ -54,44 +55,80 @@ class AMSRSnowWorkflow:
     def __init__(self, config=None):
         self.config = config
 
-
     def run_workflow(self):
         """Main workflow execution"""
         try:
-            # Step 1: Read and process AMSR2 data
             target_datetime = self.config.target_datetime
             logging.info("Processing AMSR data for %s",
                          target_datetime)
 
             datestr = target_datetime.strftime("%Y%m%d%H%M")
-            # check if the file is already exist
 
             if self.config.input_SD == "AMSR2":
-                pmw_file = (f'{self.config.project_path}/'
-                            f'{self.config.amsr2_merge_path}'
-                            f'/AMSR2_L1R_combined_{datestr}.nc')
                 self.data_processor = AMSR2DataProcessor(config=self.config)
                 self.sd_predictor = AMSR2SnowDepthPredictor(config=self.config)
 
-            elif self.config.input_SD == "AMSR3":
+                # --- 1. Check if FINAL output exists before doing anything ---
+                final_out_file, _ = self.sd_predictor.get_file_paths()
+                if os.path.exists(final_out_file):
+                    logging.info(
+                        "Final AMSR2 output already exists. Skipping: %s",
+                        final_out_file)
+                    return True
+
+                # --- 2. Check and generate PMW data if needed ---
                 pmw_file = (f'{self.config.project_path}/'
-                            f'{self.config.amsr3_resample_path}'
-                            f'/AMSR3_L1R_combined_{datestr}.nc')
+                            f'{self.config.amsr2_merge_path}'
+                            f'/AMSR2_L1R_combined_{datestr}.nc')
 
+                if not os.path.exists(pmw_file):
+                    logging.info(
+                        "Resampled AMSR2 data missing. Running processing...")
+                    self.data_processor.process_l1r_data(target_datetime)
+
+                # --- 3. Run ML Prediction (Outside the if-statement!) ---
+                logging.info("Predicting snow depth with ML model")
+                self.sd_predictor.run_pipeline(pmw_file)
+
+            elif self.config.input_SD == "AMSR3":
                 self.data_processor = AMSR3DataProcessor(config=self.config)
-                # TODO V7.9 design AMSR3 specific ML model;
-                #  For v7.8X, using AMSR2 ML model
-                self.sd_predictor = AMSR2SnowDepthPredictor(config=self.config)
+                self.sd_predictor = AMSR3SnowDepthPredictor(config=self.config)
 
-            if not os.path.exists(pmw_file):
-                # if passive microwave input data is not merged,
-                # run pre-processing
-                # to read AMSR2 L1R data and merge channels to one file.
-                self.data_processor.process_l1r_data(target_datetime)
+                # --- 1. Check if FINAL 6-hr merged output exists ---
+                final_out_file, _ = self.sd_predictor.get_file_paths()
+                if os.path.exists(final_out_file):
+                    logging.info(
+                        "Final merged AMSR3 output "
+                        "already exists. Skipping: %s",
+                        final_out_file)
+                    return True
 
-            # Step 2: ML SD prediction
-            logging.info("Predicting snow depth with ML model")
-            self.sd_predictor.run_pipeline(pmw_file)
+                # --- 2. Check and generate PMW data if needed ---
+                raw_files = self.data_processor.check_available_data(
+                    target_datetime)
+                expected_pmw_files = self.data_processor.generate_output_filename(
+                    raw_files)
+
+                # Convert paths to strings just to be safe
+                expected_pmw_files = [str(f) for f in expected_pmw_files]
+
+                needs_processing = False
+                for f in expected_pmw_files:
+                    if not os.path.exists(f):
+                        needs_processing = True
+                        break
+
+                if needs_processing:
+                    logging.info(
+                        "Resampled AMSR3 data missing. Running L1R processing...")
+                    self.data_processor.process_l1r_data(target_datetime)
+
+                # --- 3. Run ML Prediction & Merge ---
+                # Pass the ENTIRE LIST to run_pipeline
+                # so it can merge them at the end!
+                logging.info(
+                    "Predicting AMSR3 snow depth and merging swaths...")
+                self.sd_predictor.run_pipeline(expected_pmw_files)
 
             return True
 
