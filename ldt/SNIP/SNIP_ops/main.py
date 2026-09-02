@@ -83,7 +83,8 @@ class AMSRSnowWorkflow:
 
                 if not os.path.exists(pmw_file):
                     logging.info(
-                        "Resampled AMSR2 data missing. Running processing...")
+                        "Resampled AMSR2 data not ready. "
+                        "Running AMSR2 L1R data processing...")
                     self.data_processor.process_l1r_data(target_datetime)
 
                 # --- 3. Run ML Prediction (Outside the if-statement!) ---
@@ -120,7 +121,8 @@ class AMSRSnowWorkflow:
 
                 if needs_processing:
                     logging.info(
-                        "Resampled AMSR3 data missing. Running L1R processing...")
+                        "Resampled AMSR3 data not ready. "
+                        "Running AMSR3 L1R data processing...")
                     self.data_processor.process_l1r_data(target_datetime)
 
                 # --- 3. Run ML Prediction & Merge ---
