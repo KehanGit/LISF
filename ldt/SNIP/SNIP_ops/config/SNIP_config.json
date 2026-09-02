@@ -1,13 +1,13 @@
 {
   "_COMMENT_GENERAL": "--- General Project Execution Setup ---",
-  "target_datetime": "202606011200",
+  "target_datetime": "202608231200",
   "_project_path": "/discover/nobackup/kyang17/projects/LISF/ldt/SNIP/SNIP_ops/",
   "project_path": "/Users/Kyang17/projects/LISF/ldt/SNIP/SNIP_ops",
   "model_path": "./data/models/model",
   "output_dir": "./data/output",
 
   "_COMMENT_WORKFLOW": "--- Select Input Satellite: 'AMSR2', 'WSF', or 'AMSR3' ---",
-  "input_SD": "AMSR2",
+  "input_SD": "AMSR3",
 
   "_COMMENT_WSF": "--- WSF-M Specific Configuration with LDT WSF-M data reader configuration ---",
   "raw_sdr_base": "./data/input/wsf_sdr_data",
