@@ -72,8 +72,11 @@ class AMSR3DataProcessor:
                     # Read the raw data
                     tb_data = self.get_amsr3_l1r_dask(file_path)
 
+                    # get descending orbit only
+                    tb_data_D = self.get_descending_orbit(tb_data)
+
                     # Resample the single file
-                    resampled_data = self.resample_single_file(tb_data)
+                    resampled_data = self.resample_single_file(tb_data_D)
 
                     # Save to NetCDF
                     saved_path = self.save_to_nc_single(resampled_data,
@@ -118,9 +121,9 @@ class AMSR3DataProcessor:
         year_str = search_datetime.strftime('%Y')
         month_str = search_datetime.strftime('%m')
         day_str = search_datetime.strftime('%d')
-        day_of_year = search_datetime.strftime("%j")
+        day_of_year_str = search_datetime.strftime("%j")
 
-        amsr3_path = os.path.join(amsr3_path_root, year, day_of_year)
+        amsr3_path = os.path.join(amsr3_path_root, year_str, day_of_year_str)
 
         all_files = []
         if os.path.exists(amsr3_path):
@@ -151,6 +154,48 @@ class AMSR3DataProcessor:
         self.amsr3_files = file_list
         return file_list
 
+    def get_descending_orbit(self, ds):
+        """Extract all segments where latitude is decreasing"""
+        # Get latitude values
+        logger.info('Process to get descending orbit for data from NOAA')
+        if 'lat89' in ds.keys():
+            lat_values = ds['lat89']
+        else:
+            lat_values = ds['latitude']
+        # Handle 2D latitude arrays
+        if hasattr(lat_values, 'ndim') and lat_values.ndim == 2:
+            # Use the first row to find the pattern (all rows should be
+            # the same)
+            lat_row = lat_values[:, 0]  # first row
+            lat_diff = np.diff(lat_row)
+            is_decreasing = lat_diff < 0
+            decreasing_mask = np.zeros(len(lat_row), dtype=bool)
+            decreasing_indices = np.where(is_decreasing)[0]
+            # Mark both start and end points
+            decreasing_mask[decreasing_indices] = True  # Start points
+            decreasing_mask[decreasing_indices + 1] = True  # End points
+        else:
+            # Original 1D case
+            lat_diff = np.diff(lat_values)
+            is_decreasing = lat_diff < 0
+            decreasing_mask = np.zeros(len(lat_values), dtype=bool)
+            decreasing_indices = np.where(is_decreasing)[0]
+            decreasing_mask[decreasing_indices] = True
+            decreasing_mask[decreasing_indices + 1] = True
+
+        # Get final indices
+        final_indices = np.where(decreasing_mask)[0]
+        ## Apply to all arrays along the latitude axis
+        ds_result = {}
+        for var_name, var_array in ds.items():
+            if hasattr(var_array, 'ndim') and var_array.ndim == 2 \
+               and var_array.shape == lat_values.shape:
+                ds_result[var_name] = var_array[final_indices, :]
+            else:
+                ds_result[var_name] = var_array
+        return ds_result
+
+
     def _get_file_list(self, all_files, start_time, target_datetime):
         """Internal function to filter AMSR3 files by time window and descending orbit."""
         file_list = []
@@ -166,12 +211,12 @@ class AMSR3DataProcessor:
                 time_str = time_and_orbit[0:12]
                 orbit = time_and_orbit[12]
 
-                # Only keep Descending passes
-                if orbit == 'D':
-                    file_datetime = datetime.strptime(time_str,
-                                                      '%Y%m%d%H%M')
-                    if start_time <= file_datetime <= target_datetime:
-                        file_list.append(file_path)
+                # Get files within the 6 hrs time window
+
+                file_datetime = datetime.strptime(time_str,
+                                                  '%Y%m%d%H%M')
+                if start_time <= file_datetime <= target_datetime:
+                    file_list.append(file_path)
 
             except (IndexError, ValueError) as e:
                 logger.warning(
