@@ -120,7 +120,7 @@ class AMSR3DataProcessor:
         day_str = search_datetime.strftime('%d')
         day_of_year = search_datetime.strftime("%j")
 
-        amsr3_path = os.path.join(amsr3_path_root, day_of_year)
+        amsr3_path = os.path.join(amsr3_path_root, year, day_of_year)
 
         all_files = []
         if os.path.exists(amsr3_path):
