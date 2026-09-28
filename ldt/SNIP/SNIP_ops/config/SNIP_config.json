@@ -30,6 +30,7 @@
   "_AMSR3_source_comment": "AMSR3_source: NOAA",
   "amsr3_path": "./data/amsr3_l1r",
   "amsr3_resample_path": "./data/amsr3_resample",
+  "amsr3_ml_sd_path": "./data/amsr3_ml_sd",
 
   "_COMMENT_ANCILLARY": "--- Templates and Ancillary Data ---",
   "template_path": "./data/template/USAFSI_2024123112.nc",
