@@ -421,11 +421,19 @@ class AMSR3SnowDepthPredictor(BaseSnowDepthPredictor):
 
     def merge_6hr_outputs(self, output_files: list,
                           final_output_file: str) -> bool:
+        ds_list = []
         try:
-            ds_list = [xr.open_dataset(f, decode_timedelta=False) for f in
-                       output_files]
+            for f in output_files:
+                ds = xr.open_dataset(f, decode_timedelta=False)
+                if 'snow_depth' not in ds:
+                    raise KeyError(f"{f} does not contain 'snow_depth'")
+                ds_list.append(ds)
+
             ds_merged = xr.concat(ds_list, dim='time').mean(dim='time',
                                                             skipna=True)
+            if 'snow_depth' not in ds_merged:
+                raise KeyError("Merged dataset does not contain 'snow_depth'")
+
             ds_merged = ds_merged.expand_dims(
                 time=pd.to_datetime([self.target_datetime]))
 
@@ -437,6 +445,9 @@ class AMSR3SnowDepthPredictor(BaseSnowDepthPredictor):
         except Exception as e:
             logger.error("Error merging AMSR3 files: %s", e)
             return False
+        finally:
+            for ds in ds_list:
+                ds.close()
 
     def run_pipeline(self, pmw_files: Union[str, List[str]]) -> bool:
         if not isinstance(pmw_files, list):

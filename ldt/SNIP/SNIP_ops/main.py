@@ -134,7 +134,11 @@ class AMSRSnowWorkflow:
                 # so it can merge them at the end!
                 logging.info(
                     "Predicting AMSR3 snow depth and merging swaths...")
-                self.sd_predictor.run_pipeline(expected_pmw_files)
+                success = self.sd_predictor.run_pipeline(expected_pmw_files)
+                if not success:
+                    logging.error("AMSR3 prediction pipeline failed for %s",
+                                  target_datetime)
+                    return False
 
             return True
 
