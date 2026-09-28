@@ -342,17 +342,18 @@ class AMSR3SnowDepthPredictor(BaseSnowDepthPredictor):
         super().__init__(config, "AMSR3")
 
     def get_file_paths(self, pmw_file=None) -> Tuple[str, str]:
-        dir_out = self.config.project_path / self.config.amsr3_resample_path
-        os.makedirs(dir_out, exist_ok=True)
+        pred_dir = self.config.project_path / getattr(
+            self.config, 'amsr3_ml_sd_path', './data/amsr3_ml_sd')
+        os.makedirs(pred_dir, exist_ok=True)
 
         if pmw_file:
             basename = os.path.basename(str(pmw_file))
             target_str = self.target_datetime.strftime("%Y%m%d%H00")
-            return os.path.join(dir_out, basename), target_str
+            return os.path.join(pred_dir, basename), target_str
 
         else:
             target_str = self.target_datetime.strftime("%Y%m%d%H")
-            return os.path.join(dir_out,
+            return os.path.join(pred_dir,
                                 f'AMSR3_snip_0p1deg_{target_str}.nc'), target_str
 
     def save_to_netcdf(self, output: xr.DataArray, pmw_file: str) -> bool:
@@ -441,6 +442,16 @@ class AMSR3SnowDepthPredictor(BaseSnowDepthPredictor):
             os.makedirs(os.path.dirname(final_output_file), exist_ok=True)
             ds_merged.to_netcdf(final_output_file, encoding=_ENCODING,
                                 format='NETCDF4')
+
+            for f in output_files:
+                if os.path.exists(f):
+                    try:
+                        os.remove(f)
+                        logger.info("Removed temporary AMSR3 SD file after merge: %s",
+                                    f)
+                    except OSError as exc:
+                        logger.warning("Could not remove %s: %s", f, exc)
+
             return True
         except Exception as e:
             logger.error("Error merging AMSR3 files: %s", e)
