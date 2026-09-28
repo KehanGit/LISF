@@ -342,7 +342,7 @@ class AMSR3SnowDepthPredictor(BaseSnowDepthPredictor):
         super().__init__(config, "AMSR3")
 
     def get_file_paths(self, pmw_file=None) -> Tuple[str, str]:
-        dir_out = self.config.project_path / self.config.output_dir
+        dir_out = self.config.project_path / self.config.amsr3_resample_path
         os.makedirs(dir_out, exist_ok=True)
 
         if pmw_file:
