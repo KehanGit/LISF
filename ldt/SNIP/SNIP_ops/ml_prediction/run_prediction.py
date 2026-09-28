@@ -97,8 +97,10 @@ class BaseSnowDepthPredictor:
             self.model = model
             self.model_feature_names = model.feature_names_in_.tolist()
             logger.info(
-                f"{self.sensor_name} Model loaded in {
-                time.time() - start_time:.2f} seconds")
+                "%s Model loaded in %.2f seconds",
+                self.sensor_name,
+                time.time() - start_time,
+            )
         except Exception as e:
             logger.error("Error loading model: %s", e)
             raise
